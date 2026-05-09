@@ -1,0 +1,26 @@
+# API Keys - NEVER commit
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Database (large files)
+*.db
+*.db-journal
+
+# CSV trade data (large)
+bt_new_ma_best_trades.csv
+
+# Backup files
+*.backup
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini

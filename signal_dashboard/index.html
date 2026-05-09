@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MA策略信号分析平台</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Microsoft YaHei', -apple-system, sans-serif; background: #f0f2f5; color: #1a1a2e; min-height: 100vh; }
+.navbar { background: linear-gradient(135deg, #1a237e, #283593); padding: 14px 24px; display: flex; align-items: center; gap: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.navbar h1 { font-size: 18px; color: #fff; flex: 1; }
+.nav-tabs { display: flex; gap: 4px; }
+.nav-tab { padding: 8px 20px; border-radius: 6px 6px 0 0; cursor: pointer; font-size: 14px; color: rgba(255,255,255,0.7); transition: all 0.2s; border: 1px solid transparent; }
+.nav-tab:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.nav-tab.active { background: #f0f2f5; color: #1a237e; font-weight: 600; }
+.main { padding: 20px; max-width: 2200px; margin: 0 auto; }
+.panel { display: none; }
+.panel.active { display: block; }
+.controls { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+.controls select, .controls input { padding: 8px 14px; border-radius: 6px; border: 1px solid #d0d5dd; background: #fff; color: #1a1a2e; font-size: 14px; }
+.controls button { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.2s; }
+.controls button { background: #1565c0; color: white; }
+.controls button:hover { background: #1976d2; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+.controls button:disabled { opacity: 0.5; cursor: not-allowed; }
+.controls button.secondary { background: #e0e0e0; color: #333; }
+.controls button.secondary:hover { background: #d0d0d0; }
+.controls button.success { background: #2e7d32; color: white; }
+.controls button.success:hover { background: #388e3c; }
+.controls button.danger { background: #c62828; color: white; }
+.controls button.danger:hover { background: #d32f2f; }
+.controls button.purple { background: #6a1b9a; color: white; }
+.controls button.purple:hover { background: #7b1fa2; }
+.stats { display: flex; gap: 12px; margin-bottom: 16px; }
+.stat-card { padding: 14px 20px; border-radius: 10px; background: #fff; border: 1px solid #e0e0e0; min-width: 100px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.stat-card .label { font-size: 12px; color: #666; margin-bottom: 4px; }
+.stat-card .value { font-size: 24px; font-weight: bold; }
+.stat-card.a .value { color: #d32f2f; }
+.stat-card.b .value { color: #e65100; }
+.stat-card.c .value { color: #1565c0; }
+.stat-card.d .value { color: #616161; }
+.stat-card.total .value { color: #1a237e; }
+.table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid #e0e0e0; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead { background: #f5f7fa; position: sticky; top: 0; z-index: 10; }
+th { padding: 10px 12px; text-align: left; color: #555; font-weight: 600; border-bottom: 2px solid #e0e0e0; white-space: nowrap; cursor: pointer; user-select: none; }
+th:hover { color: #1565c0; }
+td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; white-space: nowrap; color: #333; }
+tr:hover { background: #f8f9ff; }
+tr.selected { background: #e3f2fd; }
+tr.signal-row { cursor: pointer; }
+tr.signal-row:hover { background: #f0f4ff; }
+tr.signal-row.active-row { background: #e8f0fe; }
+input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #1565c0; }
+.grade { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; }
+.grade-a { background: #d32f2f; color: white; }
+.grade-b { background: #e65100; color: white; }
+.grade-c { background: #1565c0; color: white; }
+.grade-d { background: #616161; color: white; }
+.up { color: #d32f2f; font-weight: 600; }
+.down { color: #2e7d32; font-weight: 600; }
+.flat { color: #888; }
+.analysis-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.analysis-card .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.analysis-card .title { font-size: 16px; font-weight: bold; color: #1a1a2e; }
+.analysis-card .score { font-size: 28px; font-weight: bold; }
+.score-high { color: #d32f2f; }
+.score-mid { color: #e65100; }
+.score-low { color: #2e7d32; }
+.analysis-card .meta { font-size: 12px; color: #888; margin-bottom: 8px; }
+.analysis-card .content { font-size: 14px; line-height: 1.8; color: #333; word-break: break-word; white-space: pre-wrap; }
+.analysis-card .links { margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f0; }
+.analysis-card .links a { color: #1565c0; text-decoration: underline; font-size: 13px; display: block; margin: 4px 0; word-break: break-all; }
+.analysis-card .links a:hover { color: #0d47a1; }
+.loading { display: inline-block; width: 20px; height: 20px; border: 3px solid #e0e0e0; border-top: 3px solid #1565c0; border-radius: 50%; animation: spin 1s linear infinite; }
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+.progress-bar { width: 100%; height: 8px; background: #e0e0e0; border-radius: 4px; margin: 10px 0; overflow: hidden; }
+.progress-bar .fill { height: 100%; background: linear-gradient(90deg, #1565c0, #42a5f5); border-radius: 4px; transition: width 0.3s; }
+.history-list { display: grid; gap: 12px; }
+.history-item { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 16px; cursor: pointer; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.history-item:hover { border-color: #1565c0; box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+.history-item .h-date { font-size: 13px; color: #1565c0; font-weight: 600; margin-bottom: 6px; }
+.history-item .h-stocks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.history-item .h-badge { padding: 3px 10px; border-radius: 12px; font-size: 12px; background: #e3f2fd; color: #1565c0; }
+.history-item .h-badge.a { background: #ffebee; color: #c62828; }
+.history-item .h-badge.b { background: #fff3e0; color: #e65100; }
+.history-item .h-badge.c { background: #e3f2fd; color: #1565c0; }
+.empty-state { text-align: center; padding: 40px 20px; color: #888; }
+.empty-state .icon { font-size: 40px; margin-bottom: 12px; }
+.empty-state .text { font-size: 14px; }
+.filter-tags { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.filter-tag { padding: 4px 14px; border-radius: 16px; cursor: pointer; font-size: 13px; background: #e0e0e0; color: #666; transition: all 0.2s; }
+.filter-tag:hover { background: #d0d0d0; }
+.filter-tag.active { background: #1565c0; color: white; }
+.modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+.modal-overlay.show { display: flex; }
+.modal { background: #fff; border-radius: 12px; width: 95%; max-width: 1800px; max-height: 90vh; overflow: auto; padding: 24px; position: relative; }
+.close-btn { position: absolute; top: 12px; right: 16px; font-size: 24px; background: none; border: none; cursor: pointer; color: #888; }
+.close-btn:hover { color: #333; }
+.kline-row { display: none; }
+.kline-row.open { display: table-row; }
+.kline-inner { padding: 0; height: 420px; background: #fff; border-radius: 8px; overflow: hidden; position: relative; border: 1px solid #e0e0e0; }
+.kline-loading { color: #888; font-size: 13px; text-align: center; padding: 20px; }
+.kline-header { display: flex; gap: 8px; padding: 8px 12px; font-size: 12px; color: #555; background: #fafafa; border-bottom: 1px solid #e8e8e8; position: relative; z-index: 5; }
+.kline-header span { cursor: pointer; padding: 3px 10px; border-radius: 4px; }
+.kline-header span:hover { background: #e8e8e8; }
+.kline-header span.active { background: #1565c0; color: white; }
+.kline-header .kline-info { margin-left: auto; display: flex; gap: 14px; font-size: 12px; }
+.kline-header .kline-info .up { color: #d32f2f; }
+.kline-header .kline-info .down { color: #2e7d32; }
+.kline-area { position: relative; height: calc(100% - 36px); }
+.kline-canvas-wrap { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+.news-cell { max-width: 200px; white-space: normal; word-break: break-all; font-size: 12px; color: #666; line-height: 1.4; }
+.news-cell a { color: #1565c0; text-decoration: none; }
+.news-cell a:hover { text-decoration: underline; }
+.score-cell { font-weight: bold; font-size: 15px; }
+.comp-report { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 20px; margin-bottom: 20px; line-height: 1.8; white-space: pre-wrap; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+</style>
+</head>
+<body>
+<div class="navbar">
+  <h1>MA策略信号分析平台</h1>
+  <div class="nav-tabs">
+    <div class="nav-tab active" onclick="switchTab('signals')">信号分析</div>
+    <div class="nav-tab" onclick="switchTab('history')">历史分析</div>
+  </div>
+</div>
+
+<div class="main">
+  <!-- ========== 信号分析 ========== -->
+  <div id="panel-signals" class="panel active">
+    <div class="controls">
+      <label style="font-weight:600;color:#333">信号日期：</label>
+      <select id="dateSelect"><option value="">加载中...</option></select>
+      <button onclick="loadSignals()">加载信号</button>
+      <span style="flex:1"></span>
+      <span id="selectedCount" style="color:#1565c0;font-size:13px;font-weight:600"></span>
+      <button id="btnAnalyze" class="success" onclick="startAnalysis()" disabled>分析选中股票</button>
+      <button id="btnCompTop" class="purple" onclick="comprehensiveAnalysis()" style="display:none">综合分析</button>
+    </div>
+
+    <div class="stats" id="statsArea" style="display:none">
+      <div class="stat-card total"><div class="label">总信号</div><div class="value" id="statTotal">0</div></div>
+      <div class="stat-card a"><div class="label">A级</div><div class="value" id="statA">0</div></div>
+      <div class="stat-card b"><div class="label">B级</div><div class="value" id="statB">0</div></div>
+      <div class="stat-card c"><div class="label">C级</div><div class="value" id="statC">0</div></div>
+      <div class="stat-card d"><div class="label">D级</div><div class="value" id="statD">0</div></div>
+    </div>
+
+    <div class="filter-tags" id="filterTags" style="display:none">
+      <div class="filter-tag active" data-grade="all" onclick="filterGrade('all')">全部</div>
+      <div class="filter-tag" data-grade="A" onclick="filterGrade('A')">A级</div>
+      <div class="filter-tag" data-grade="B" onclick="filterGrade('B')">B级</div>
+      <div class="filter-tag" data-grade="C" onclick="filterGrade('C')">C级</div>
+      <div class="filter-tag" data-grade="D" onclick="filterGrade('D')">D级</div>
+      <span style="flex:1"></span>
+      <button class="secondary" style="font-size:12px;padding:4px 10px" onclick="selectAll()">全选</button>
+      <button class="secondary" style="font-size:12px;padding:4px 10px" onclick="deselectAll()">取消全选</button>
+    </div>
+
+    <div class="table-wrap" id="signalTableWrap" style="display:none">
+      <table id="signalTable">
+        <thead>
+          <tr>
+            <th style="width:40px"><input type="checkbox" id="checkAll" onchange="toggleAll(this)"></th>
+            <th onclick="sortTable('code')">代码</th>
+            <th onclick="sortTable('name')">名称</th>
+            <th onclick="sortTable('grade')">评级</th>
+            <th onclick="sortTable('signal_type')">信号</th>
+            <th onclick="sortTable('close')">收盘</th>
+            <th onclick="sortTable('ma5')">MA5</th>
+            <th onclick="sortTable('ma20')">MA20</th>
+            <th onclick="sortTable('vol_ratio')">量比</th>
+            <th onclick="sortTable('rise_today')">涨幅</th>
+            <th onclick="sortTable('dist_ma20')">距MA20</th>
+            <th onclick="sortTable('rsi')">RSI</th>
+          </tr>
+        </thead>
+        <tbody id="signalBody"></tbody>
+      </table>
+    </div>
+
+    <div id="emptyState" class="empty-state">
+      <div class="icon">📈</div>
+      <div class="text">选择日期后点击"加载信号"</div>
+    </div>
+
+    <div id="analysisArea" style="display:none">
+      <div id="progressSticky" style="position:sticky;top:0;z-index:10;background:#f0f2f5;padding:12px 0;border-bottom:2px solid #1565c0;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+          <h2 style="margin:0; color:#1a237e; font-size:18px; flex:1;">AI分析结果 <span id="analysisProgress" style="font-size:13px;color:#666;font-weight:normal"></span></h2>
+          <button id="btnStop" class="danger" style="display:none;padding:6px 16px;font-size:13px" onclick="abortAnalysis()">停止</button>
+        </div>
+        <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill" style="width:0"></div></div>
+      </div>
+      <div id="analysisResults"></div>
+      <div style="margin-top:16px; display:flex; gap:12px;">
+        <button class="success" onclick="comprehensiveAnalysis()">综合分析</button>
+        <button class="secondary" onclick="exportResults()">导出CSV</button>
+      </div>
+      <div id="comprehensiveArea" style="display:none; margin-top:20px;">
+        <h2 style="margin-bottom:12px; color:#1a237e; font-size:18px;">综合投资建议</h2>
+        <div id="comprehensiveContent" style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:20px;line-height:1.8;color:#333;white-space:pre-wrap"></div>
+      </div>
+      <div id="rankingArea" style="display:none; margin-top:20px;">
+        <h2 style="margin-bottom:12px; color:#1a237e; font-size:18px;">综合排名</h2>
+        <div class="table-wrap">
+          <table id="rankTable">
+            <thead><tr><th>排名</th><th>代码</th><th>名称</th><th>信号</th><th>评级</th><th>AI评分</th><th>综合评分</th><th>新闻</th><th>分析摘要</th></tr></thead>
+            <tbody id="rankBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 历史分析 ========== -->
+  <div id="panel-history" class="panel">
+    <div class="controls">
+      <button onclick="loadHistory()">加载历史</button>
+    </div>
+    <div class="history-list" id="historyList">
+      <div class="empty-state"><div class="icon">📚</div><div class="text">加载中...</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="historyModal">
+  <div class="modal">
+    <button class="close-btn" onclick="closeModal()">x</button>
+    <h2 id="modalTitle">分析详情</h2>
+    <div id="modalContent"></div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let allSignals = [];
+let filteredSignals = [];
+let selectedStocks = new Set();
+let sortCol = '';
+let sortAsc = true;
+let currentRunId = null;
+let analysisResults = [];
+let currentFilter = 'all';
+let abortController = null;
+
+async function init() {
+  try {
+    const res = await fetch(API + '/api/dates');
+    const data = await res.json();
+    const sel = document.getElementById('dateSelect');
+    sel.innerHTML = data.dates.map(d => `<option value="${d}">${d}</option>`).join('');
+  } catch(e) {
+    document.getElementById('dateSelect').innerHTML = '<option value="">加载失败: ' + e.message + '</option>';
+  }
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.nav-tab[onclick="switchTab('${tab}')"]`).classList.add('active');
+  document.getElementById('panel-' + tab).classList.add('active');
+  if (tab === 'history') loadHistory();
+}
+
+async function loadSignals() {
+  const date = document.getElementById('dateSelect').value;
+  if (!date) return;
+  document.getElementById('emptyState').innerHTML = '<div class="loading"></div><div class="text" style="margin-top:12px">正在加载...</div>';
+  document.getElementById('emptyState').style.display = 'block';
+  document.getElementById('signalTableWrap').style.display = 'none';
+  document.getElementById('statsArea').style.display = 'none';
+  document.getElementById('filterTags').style.display = 'none';
+  document.getElementById('analysisArea').style.display = 'none';
+  const res = await fetch(API + `/api/signals?date=${date}`);
+  const data = await res.json();
+  allSignals = data.signals;
+  filteredSignals = [...allSignals];
+  selectedStocks.clear();
+  document.getElementById('statTotal').textContent = data.count;
+  document.getElementById('statA').textContent = data.summary.A;
+  document.getElementById('statB').textContent = data.summary.B;
+  document.getElementById('statC').textContent = data.summary.C;
+  document.getElementById('statD').textContent = data.summary.D;
+  document.getElementById('statsArea').style.display = 'flex';
+  document.getElementById('filterTags').style.display = 'flex';
+  document.getElementById('signalTableWrap').style.display = 'block';
+  document.getElementById('emptyState').style.display = 'none';
+  renderTable();
+  updateSelectedCount();
+}
+
+let openKlineCode = null;
+let klineCharts = {};
+
+function renderTable() {
+  const tbody = document.getElementById('signalBody');
+  tbody.innerHTML = filteredSignals.map((s) => {
+    const riseClass = s.rise_today > 0 ? 'up' : s.rise_today < 0 ? 'down' : 'flat';
+    const distClass = s.dist_ma20 > 0 ? 'up' : s.dist_ma20 < 0 ? 'down' : 'flat';
+    const gradeClass = 'grade-' + s.grade.toLowerCase();
+    const checked = selectedStocks.has(s.code) ? 'checked' : '';
+    const klineOpen = openKlineCode === s.code;
+    return `<tr class="signal-row ${checked ? 'selected' : ''} ${klineOpen ? 'active-row' : ''}" data-code="${s.code}" onclick="toggleKline('${s.code}', event)">
+      <td onclick="event.stopPropagation()"><input type="checkbox" ${checked} onchange="toggleStock('${s.code}', this)"></td>
+      <td><b>${s.code}</b></td>
+      <td>${s.name}</td>
+      <td><span class="grade ${gradeClass}">${s.grade}级</span></td>
+      <td>${s.signal_type}</td>
+      <td>${s.close}</td>
+      <td>${s.ma5}</td>
+      <td>${s.ma20}</td>
+      <td><b>${s.vol_ratio}x</b></td>
+      <td class="${riseClass}">${s.rise_today > 0 ? '+' : ''}${s.rise_today}%</td>
+      <td class="${distClass}">${s.dist_ma20 > 0 ? '+' : ''}${s.dist_ma20}%</td>
+      <td>${s.rsi}</td>
+    </tr>
+    <tr id="kline-row-${s.code}" class="kline-row ${klineOpen ? 'open' : ''}">
+      <td colspan="12">
+        <div class="kline-inner" id="kline-inner-${s.code}">
+          <div class="kline-loading">加载K线数据...</div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+  if (openKlineCode) { loadKlineChart(openKlineCode); }
+}
+
+async function toggleKline(code, event) {
+  if (event.target.closest('input') || event.target.closest('button')) return;
+  if (event.target.closest('.kline-header')) return;
+  openKlineCode = (openKlineCode === code) ? null : code;
+  renderTable();
+}
+
+async function loadKlineChart(code) {
+  const inner = document.getElementById('kline-inner-' + code);
+  if (!inner) return;
+  inner.innerHTML = '<div class="kline-loading">加载中...</div>';
+  const res = await fetch(API + `/api/stock_kline?code=${code}&days=180`);
+  const data = await res.json();
+  if (!data.kline || data.kline.length === 0) {
+    inner.innerHTML = '<div class="kline-loading">暂无数据</div>';
+    return;
+  }
+  const k = data.kline;
+  const last = k[k.length - 1];
+  const prev = k.length > 1 ? k[k.length - 2] : last;
+  const chg = last.close - prev.close;
+  const chgPct = prev.close ? (chg / prev.close * 100) : 0;
+  const chgClass = chg >= 0 ? 'up' : 'down';
+  const chgSign = chg >= 0 ? '+' : '';
+
+  inner.innerHTML = `<div class="kline-header">
+    <span class="active" onclick="switchKlineMode('${code}','candle')">蜡烛图</span>
+    <span onclick="switchKlineMode('${code}','line')">折线图</span>
+    <div class="kline-info">
+      <span>收 <b class="${chgClass}">${last.close}</b></span>
+      <span>开 <b class="${chgClass}">${last.open}</b></span>
+      <span>高 <b class="${chgClass}">${last.high}</b></span>
+      <span>低 <b class="${chgClass}">${last.low}</b></span>
+      <span>涨跌 <b class="${chgClass}">${chgSign}${chg.toFixed(2)} (${chgSign}${chgPct.toFixed(2)}%)</b></span>
+    </div>
+  </div>
+  <div class="kline-area">
+    <div class="kline-canvas-wrap"><canvas id="kline-canvas-${code}"></canvas></div>
+  </div>`;
+  drawCandlestick(code, k);
+}
+
+function switchKlineMode(code, mode) {
+  const header = document.querySelector(`#kline-inner-${code} .kline-header`);
+  if (header) header.querySelectorAll('span').forEach(s => s.classList.remove('active'));
+  if (header) {
+    const target = header.querySelector(`span[onclick*="${mode}"]`);
+    if (target) target.classList.add('active');
+  }
+  fetch(API + `/api/stock_kline?code=${code}&days=180`).then(r=>r.json()).then(data => {
+    if (!data.kline || data.kline.length === 0) return;
+    if (mode === 'candle') drawCandlestick(code, data.kline);
+    else drawLineChart(code, data.kline);
+  });
+}
+
+function drawCandlestick(code, kline) {
+  const canvas = document.getElementById('kline-canvas-' + code);
+  if (!canvas) return;
+  if (klineCharts[code]) klineCharts[code].destroy();
+  if (klineCharts[code + '_vol']) { klineCharts[code + '_vol'].destroy(); klineCharts[code + '_vol'] = null; }
+
+  const labels = kline.map(k => k.date.slice(5));
+  const closes = kline.map(k => k.close);
+  const ma5s = calcMA(closes, 5);
+  const ma10s = calcMA(closes, 10);
+  const ma20s = calcMA(closes, 20);
+
+  const red = '#d32f2f', green = '#2e7d32';
+  const priceLow = Math.min(...kline.map(k => k.low));
+  const priceHigh = Math.max(...kline.map(k => k.high));
+  const pricePad = (priceHigh - priceLow) * 0.08;
+  const maxVol = Math.max(...kline.map(k => k.volume || 0));
+
+  // 成交量插件：在底部25%区域画柱子
+  const volumePlugin = {
+    id: 'vol_' + code,
+    afterDraw: function(chart) {
+      const ctx = chart.ctx;
+      const chartArea = chart.chartArea;
+      const xScale = chart.scales.x;
+      const yScale = chart.scales.y;
+      const volHeight = (chartArea.bottom - chartArea.top) * 0.25;
+      const volBottom = chartArea.bottom;
+      const volTop = volBottom - volHeight;
+      const barCount = kline.length;
+      const barWidth = (chartArea.right - chartArea.left) / barCount;
+
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      for (let i = 0; i < barCount; i++) {
+        const k = kline[i];
+        const x = xScale.getPixelForValue(i);
+        const barH = maxVol > 0 ? (k.volume / maxVol) * volHeight : 0;
+        ctx.fillStyle = k.close >= k.open ? 'rgba(211,47,47,0.7)' : 'rgba(46,125,50,0.7)';
+        const left = chartArea.left + i * barWidth;
+        ctx.fillRect(left, volBottom - barH, barWidth, barH);
+      }
+      ctx.restore();
+    }
+  };
+
+  klineCharts[code] = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        // 只有一个bar dataset，独占全宽
+        {
+          label: '价格',
+          data: kline.map(k => [Math.min(k.open, k.close), Math.max(k.open, k.close)]),
+          backgroundColor: kline.map(k => k.close >= k.open ? red : green),
+          borderColor: kline.map(k => k.close >= k.open ? '#b71c1c' : '#1b5e20'),
+          borderWidth: 1.5, borderSkipped: false,
+          barPercentage: 1.0, categoryPercentage: 1.0,
+          order: 0,
+        },
+        { type: 'line', label: 'MA5', data: ma5s, borderColor: '#e65100', borderWidth: 1.2, pointRadius: 0, tension: 0.3, order: 1 },
+        { type: 'line', label: 'MA10', data: ma10s, borderColor: '#1565c0', borderWidth: 1.2, pointRadius: 0, tension: 0.3, order: 1 },
+        { type: 'line', label: 'MA20', data: ma20s, borderColor: '#6a1b9a', borderWidth: 1.2, pointRadius: 0, tension: 0.3, order: 1 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      layout: { padding: { top: 8, right: 6, bottom: 0, left: 0 } },
+      plugins: {
+        legend: {
+          display: true, position: 'top', align: 'start',
+          labels: { color: '#555', font: { size: 11 }, boxWidth: 12, padding: 10, usePointStyle: true, filter: item => item.text !== '价格' }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(33,33,33,0.92)', titleColor: '#fff', bodyColor: '#eee', borderColor: '#555', borderWidth: 1, padding: 10, displayColors: false,
+          callbacks: {
+            title: items => items[0].label,
+            label: function(ctx) {
+              if (ctx.dataset.label !== '价格') return null;
+              const i = ctx.dataIndex;
+              const k = kline[i];
+              const prev = i > 0 ? kline[i-1] : k;
+              const chg = k.close - prev.close;
+              const pct = prev.close ? (chg / prev.close * 100) : 0;
+              const sign = chg >= 0 ? '+' : '';
+              const volStr = k.volume >= 100000 ? (k.volume/10000).toFixed(0)+'万' : k.volume >= 10000 ? (k.volume/10000).toFixed(1)+'万' : k.volume;
+              return ['开:' + k.open + '  高:' + k.high + '  低:' + k.low + '  收:' + k.close, '涨跌:' + sign + chg.toFixed(2) + ' (' + sign + pct.toFixed(2) + '%)', '成交量:' + volStr];
+            },
+            filter: item => item.dataset.label === '价格',
+          }
+        }
+      },
+      scales: {
+        y: {
+          position: 'right',
+          min: priceLow - pricePad, max: priceHigh + pricePad,
+          grid: { color: '#f0f0f0', drawBorder: false },
+          ticks: { color: '#666', font: { size: 11 }, padding: 4 },
+          border: { display: false },
+        },
+        x: {
+          grid: { display: false },
+          ticks: { color: '#999', font: { size: 10 }, maxTicksLimit: 10, maxRotation: 0 },
+          border: { display: false },
+        }
+      }
+    },
+    plugins: [volumePlugin]
+  });
+
+  // 影线插件
+  const shadowPlugin = {
+    id: 'shadow_' + code,
+    afterDraw: function(chart2) {
+      const meta = chart2.getDatasetMeta(0);
+      const yScale = chart2.scales.y;
+      const ctx2 = chart2.ctx;
+      ctx2.save();
+      ctx2.lineWidth = 1;
+      meta.data.forEach((bar, i) => {
+        if (i >= kline.length) return;
+        const k = kline[i];
+        const x = bar.x;
+        const yHigh = yScale.getPixelForValue(k.high);
+        const yLow = yScale.getPixelForValue(k.low);
+        ctx2.strokeStyle = k.close >= k.open ? '#b71c1c' : '#1b5e20';
+        ctx2.beginPath();
+        ctx2.moveTo(x, yHigh);
+        ctx2.lineTo(x, yLow);
+        ctx2.stroke();
+      });
+      ctx2.restore();
+    }
+  };
+  klineCharts[code].config.plugins.push(shadowPlugin);
+  klineCharts[code].update();
+}
+
+function drawLineChart(code, kline) {
+  const canvas = document.getElementById('kline-canvas-' + code);
+  if (!canvas) return;
+  if (klineCharts[code]) klineCharts[code].destroy();
+  if (klineCharts[code + '_vol']) { klineCharts[code + '_vol'].destroy(); klineCharts[code + '_vol'] = null; }
+
+  const labels = kline.map(k => k.date.slice(5));
+  const closes = kline.map(k => k.close);
+  const ma5s = calcMA(closes, 5);
+  const ma10s = calcMA(closes, 10);
+  const ma20s = calcMA(closes, 20);
+  const maxVol = Math.max(...kline.map(k => k.volume || 0));
+  const priceLow = Math.min(...kline.map(k => k.low));
+  const priceHigh = Math.max(...kline.map(k => k.high));
+  const pricePad = (priceHigh - priceLow) * 0.08;
+
+  klineCharts[code] = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: '收盘价', data: closes, borderColor: '#d32f2f', backgroundColor: 'rgba(211,47,47,0.06)', borderWidth: 1.5, pointRadius: 0, tension: 0.2, fill: true, yAxisID: 'y' },
+        { label: 'MA5', data: ma5s, borderColor: '#e65100', borderWidth: 1, pointRadius: 0, tension: 0.3, borderDash: [3,2], yAxisID: 'y' },
+        { label: 'MA10', data: ma10s, borderColor: '#1565c0', borderWidth: 1, pointRadius: 0, tension: 0.3, borderDash: [3,2], yAxisID: 'y' },
+        { label: 'MA20', data: ma20s, borderColor: '#6a1b9a', borderWidth: 1, pointRadius: 0, tension: 0.3, borderDash: [3,2], yAxisID: 'y' },
+        { type: 'bar', label: '成交量', data: kline.map(k => k.volume),
+          backgroundColor: kline.map((k, i) => i > 0 && k.close < kline[i-1].close ? 'rgba(46,125,50,0.55)' : 'rgba(211,47,47,0.55)'),
+          borderWidth: 0, barPercentage: 1.0, categoryPercentage: 1.0, yAxisID: 'y1' },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      layout: { padding: { top: 8, right: 6 } },
+      plugins: {
+        legend: { display: true, position: 'top', align: 'start',
+          labels: { color: '#555', font: { size: 11 }, boxWidth: 12, padding: 10, usePointStyle: true, filter: item => item.text !== '成交量' }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(33,33,33,0.92)', titleColor: '#fff', bodyColor: '#eee', padding: 10, displayColors: false,
+          callbacks: {
+            title: items => items[0].label,
+            label: function(ctx) {
+              const i = ctx.dataIndex;
+              const k = kline[i];
+              const prev = i > 0 ? kline[i-1] : k;
+              const chg = k.close - prev.close;
+              const pct = prev.close ? (chg / prev.close * 100) : 0;
+              const sign = chg >= 0 ? '+' : '';
+              const volStr = k.volume >= 100000 ? (k.volume/10000).toFixed(0)+'万' : k.volume >= 10000 ? (k.volume/10000).toFixed(1)+'万' : k.volume;
+              return ['收:' + k.close + '  涨跌:' + sign + chg.toFixed(2) + ' (' + sign + pct.toFixed(2) + '%)', '成交量:' + volStr];
+            },
+            filter: item => item.dataset.label === '收盘价',
+          }
+        }
+      },
+      scales: {
+        y: { position: 'right', min: priceLow - pricePad, max: priceHigh + pricePad, grid: { color: '#f0f0f0' }, ticks: { color: '#666', font: { size: 11 } }, border: { display: false } },
+        y1: { position: 'left', grid: { display: false }, ticks: { display: false }, border: { display: false }, min: 0, max: maxVol * 4 },
+        x: { grid: { display: false }, ticks: { color: '#999', font: { size: 10 }, maxTicksLimit: 10, maxRotation: 0 }, border: { display: false } },
+      }
+    }
+  });
+}
+
+function calcMA(arr, period) {
+  return arr.map((_, i) => {
+    if (i < period - 1) return null;
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += arr[j];
+    return +(sum / period).toFixed(2);
+  });
+}
+
+function sortTable(col) {
+  if (sortCol === col) { sortAsc = !sortAsc; } else { sortCol = col; sortAsc = true; }
+  filteredSignals.sort((a, b) => {
+    let va = a[col], vb = b[col];
+    if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase(); }
+    if (va < vb) return sortAsc ? -1 : 1;
+    if (va > vb) return sortAsc ? 1 : -1;
+    return 0;
+  });
+  renderTable();
+}
+
+function filterGrade(grade) {
+  currentFilter = grade;
+  document.querySelectorAll('.filter-tag').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.filter-tag[data-grade="${grade}"]`).classList.add('active');
+  filteredSignals = grade === 'all' ? [...allSignals] : allSignals.filter(s => s.grade === grade);
+  renderTable();
+}
+
+function toggleStock(code, cb) {
+  if (cb.checked) selectedStocks.add(code); else selectedStocks.delete(code);
+  updateSelectedCount(); updateAnalyzeBtn();
+}
+
+function toggleAll(cb) {
+  if (cb.checked) filteredSignals.forEach(s => selectedStocks.add(s.code)); else selectedStocks.clear();
+  renderTable(); updateSelectedCount(); updateAnalyzeBtn();
+}
+
+function selectAll() { filteredSignals.forEach(s => selectedStocks.add(s.code)); renderTable(); updateSelectedCount(); updateAnalyzeBtn(); }
+function deselectAll() { selectedStocks.clear(); renderTable(); updateSelectedCount(); updateAnalyzeBtn(); }
+function updateSelectedCount() { document.getElementById('selectedCount').textContent = selectedStocks.size > 0 ? `已选 ${selectedStocks.size} 只` : ''; }
+function updateAnalyzeBtn() {
+  const hasSelection = selectedStocks.size > 0;
+  document.getElementById('btnAnalyze').disabled = !hasSelection;
+  document.getElementById('btnCompTop').style.display = hasSelection ? 'inline-block' : 'none';
+}
+
+async function startAnalysis() {
+  if (selectedStocks.size === 0) return;
+  const codes = [...selectedStocks];
+  const stocks = codes.map(code => {
+    const sig = allSignals.find(s => s.code === code);
+    return { code, name: sig?.name || '', grade: sig?.grade || '', signal_type: sig?.signal_type || '' };
+  });
+  const signalDate = document.getElementById('dateSelect').value;
+  document.getElementById('analysisArea').style.display = 'block';
+  document.getElementById('analysisResults').innerHTML = '';
+  document.getElementById('comprehensiveArea').style.display = 'none';
+  document.getElementById('rankingArea').style.display = 'none';
+  document.getElementById('btnStop').style.display = 'inline-block';
+  document.getElementById('btnCompTop').style.display = 'inline-block';
+  analysisResults = [];
+  abortController = new AbortController();
+  let done = 0;
+  const total = stocks.length;
+  try {
+    const res = await fetch(API + '/api/full_analyze', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stocks, signal_date: signalDate }),
+      signal: abortController.signal
+    });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { value, done: streamDone } = await reader.read();
+      if (streamDone) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const msg = JSON.parse(line.slice(6));
+          if (msg.type === 'result') {
+            analysisResults.push(msg.data);
+            done++;
+            document.getElementById('analysisProgress').textContent = `${done}/${total}`;
+            document.getElementById('progressFill').style.width = `${(done / total) * 100}%`;
+            appendResultCard(msg.data);
+          } else if (msg.type === 'progress') {
+            document.getElementById('analysisProgress').textContent = `${msg.stage === 'search' ? '搜索中' : '分析中'} ${msg.current}/${total} ${msg.name || msg.code || ''}`;
+          } else if (msg.type === 'aborted') {
+            document.getElementById('analysisProgress').textContent = msg.message;
+          } else if (msg.type === 'done') {
+            document.getElementById('analysisProgress').textContent = '分析完成';
+          }
+        } catch(e) {}
+      }
+    }
+  } catch(e) {
+    if (e.name !== 'AbortError') console.error('分析失败', e);
+  }
+  document.getElementById('btnStop').style.display = 'none';
+  if (done > 0) document.getElementById('analysisProgress').textContent = '分析完成';
+}
+
+function abortAnalysis() { if (abortController) abortController.abort(); }
+
+function appendResultCard(r) {
+  const container = document.getElementById('analysisResults');
+  const scoreClass = r.score >= 7 ? 'score-high' : r.score >= 4 ? 'score-mid' : 'score-low';
+  const gradeClass = 'grade-' + (r.grade || 'c').toLowerCase();
+  const links = (r.news_links || []).map(l => `<a href="${l.url}" target="_blank">${l.title || '相关新闻'}</a>`).join('');
+  container.insertAdjacentHTML('beforeend', `<div class="analysis-card"><div class="header"><div class="title">${r.code} ${r.name || ''} <span class="grade ${gradeClass}">${r.grade || ''}级</span></div><div class="score ${scoreClass}">${r.score || '-'}</div></div><div class="meta">信号类型: ${r.signal_type || '-'}</div><div class="content">${r.analysis || ''}</div>${links ? `<div class="links">${links}</div>` : ''}</div>`);
+}
+
+async function comprehensiveAnalysis() {
+  if (analysisResults.length === 0) { alert('请先分析股票'); return; }
+  const btn = document.getElementById('btnCompTop');
+  if (btn) { btn.disabled = true; btn.textContent = '生成中...'; }
+  document.getElementById('comprehensiveContent').textContent = '正在生成综合分析，请稍候...';
+  document.getElementById('comprehensiveArea').style.display = 'block';
+  try {
+    const signalDate = document.getElementById('dateSelect').value;
+    const res = await fetch(API + '/api/comprehensive', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ results: analysisResults, signal_date: signalDate })
+    });
+    const data = await res.json();
+    document.getElementById('comprehensiveContent').textContent = data.comprehensive || data.report || '暂无综合分析';
+    document.getElementById('rankingArea').style.display = 'block';
+    renderRanking(data.ranking || []);
+  } catch(e) { document.getElementById('comprehensiveContent').textContent = '综合分析生成失败: ' + e.message; }
+  if (btn) { btn.disabled = false; btn.textContent = '综合分析'; }
+}
+
+function renderRanking(ranking) {
+  const tbody = document.getElementById('rankBody');
+  tbody.innerHTML = ranking.map((r, i) => {
+    const gradeClass = 'grade-' + (r.grade || 'c').toLowerCase();
+    const newsStr = r.news || '无';
+    return `<tr>
+      <td>#${i+1}</td><td>${r.code}</td><td>${r.name}</td>
+      <td>${r.signal_type || '-'}</td>
+      <td><span class="grade ${gradeClass}">${r.grade || ''}级</span></td>
+      <td><b>${r.score}</b></td>
+      <td class="score-cell">${r.comprehensive_score || r.score || '-'}</td>
+      <td class="news-cell">${newsStr}</td>
+      <td style="word-break:break-word;white-space:normal;max-width:300px">${r.reason || '-'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function exportResults() {
+  const header = '代码,名称,信号,评级,评分,分析摘要\n';
+  const rows = analysisResults.map(r => `${r.code},${r.name || ''},${r.signal_type || ''},${r.grade || ''},${r.score},"${(r.analysis || '').replace(/"/g, '""').substring(0, 200)}"`).join('\n');
+  const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url;
+  a.download = `MA分析结果_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ========== 历史分析 ==========
+async function loadHistory() {
+  const container = document.getElementById('historyList');
+  container.innerHTML = '<div class="loading"></div>';
+  try {
+    const res = await fetch(API + '/api/history');
+    const data = await res.json();
+    const runs = data.history || data.runs || [];
+    if (!runs || runs.length === 0) {
+      container.innerHTML = '<div class="empty-state"><div class="icon">📚</div><div class="text">暂无历史分析记录</div></div>';
+      return;
+    }
+    container.innerHTML = runs.map(run => {
+      const hasComp = (run.comprehensive_summary || '').length > 0;
+      const compBadge = hasComp ? '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:#e8f5e9;color:#2e7d32;margin-left:8px">已生成综合分析</span>' : '';
+      const compSummary = run.comprehensive_summary ? `<div style="color:#555;font-size:13px;margin-top:6px;line-height:1.5;max-height:40px;overflow:hidden">${run.comprehensive_summary}</div>` : '';
+      return `<div class="history-item" onclick="loadHistoryDetail(${run.id}, '${run.signal_date}')">
+        <div class="h-date">${run.signal_date} - 分析了 ${run.stock_count} 只股票 ${compBadge}</div>
+        <div style="color:#666;font-size:13px">${new Date(run.created_at).toLocaleString()}</div>
+        ${compSummary}
+      </div>`;
+    }).join('');
+  } catch(e) { container.innerHTML = '<div class="empty-state"><div class="icon">❌</div><div class="text">加载失败: ' + e.message + '</div></div>'; }
+}
+
+// 当前历史详情数据（用于综合分析）
+let historyDetailResults = [];
+let historyRunId = null;
+
+async function loadHistoryDetail(runId, signalDate) {
+  const modal = document.getElementById('historyModal');
+  const content = document.getElementById('modalContent');
+  modal.classList.add('show');
+  content.innerHTML = '<div class="loading"></div>加载详情...';
+  historyRunId = runId;
+  try {
+    const res = await fetch(API + `/api/history/${runId}`);
+    const data = await res.json();
+    const results = data.results || [];
+    historyDetailResults = results;
+    if (results.length === 0) {
+      content.innerHTML = '<div class="empty-state"><div class="icon">📚</div><div class="text">暂无数据</div></div>'; return;
+    }
+    renderHistoryDetail(content, results, data);
+  } catch(e) { content.innerHTML = '<div class="empty-state"><div class="icon">❌</div><div class="text">加载失败: ' + e.message + '</div></div>'; }
+}
+
+function renderHistoryDetail(content, results, data) {
+  const hasCompReport = data.comprehensive_report || data.report;
+  const hasCompScore = results.some(r => r.comprehensive_score);
+
+  // 按钮栏
+  let headerBtns = `<div style="display:flex;gap:12px;margin-bottom:16px;align-items:center">
+    <h2 style="flex:1;margin:0;color:#1a237e;font-size:18px">分析详情（${results.length}只）</h2>
+    ${hasCompReport ? '<button style="padding:6px 16px;font-size:13px;border:none;border-radius:6px;cursor:pointer;background:#2e7d32;color:white" onclick="viewCompReport()">查看综合分析</button>' : ''}
+    <button style="padding:6px 16px;font-size:13px;border:none;border-radius:6px;cursor:pointer;background:#6a1b9a;color:white" onclick="historyCompAnalysis()">综合分析</button>
+    <button style="padding:6px 16px;font-size:13px;border:none;border-radius:6px;cursor:pointer;background:#e65100;color:white" onclick="batchReanalyze()">批量重分析</button>
+  </div>`;
+
+  // 表格
+  const compTh = hasCompScore ? '<th>综合评分</th>' : '';
+  content.innerHTML = headerBtns + `<div id="compReportArea"></div><div class="table-wrap"><table>
+    <thead><tr>
+      <th>排名</th><th>代码</th><th>名称</th><th>信号</th><th>评级</th><th>评分</th>${compTh}<th>新闻</th><th>分析摘要</th><th>操作</th>
+    </tr></thead>
+    <tbody></tbody></table></div>`;
+  const tbody = content.querySelector('tbody');
+  tbody.innerHTML = results.map((r, i) => {
+    const gradeClass = 'grade-' + (r.grade || 'c').toLowerCase();
+    const summary = r.analysis || '暂无分析';
+    const newsLinks = (r.news_links || []).filter(l => l.url);
+    let newsHtml = '';
+    if (newsLinks.length > 0) {
+      newsHtml = newsLinks.map(l => `<a href="${l.url}" target="_blank" style="color:#1565c0;text-decoration:none;font-size:12px;display:block;margin:2px 0">${l.title || '新闻'}</a>`).join('');
+    } else {
+      newsHtml = '<span style="color:#999;font-size:12px">无</span>';
+    }
+    const compTd = hasCompScore ? `<td class="score-cell">${r.comprehensive_score || '-'}</td>` : '';
+    return `<tr>
+      <td>#${i+1}</td><td>${r.code}</td><td>${r.name}</td>
+      <td>${r.signal_type || '-'}</td>
+      <td><span class="grade ${gradeClass}">${r.grade || ''}级</span></td>
+      <td><b>${r.score}</b></td>
+      ${compTd}
+      <td class="news-cell">${newsHtml}</td>
+      <td style="word-break:break-word;white-space:normal;max-width:500px;line-height:1.6">${summary}</td>
+      <td><button style="padding:4px 10px;font-size:12px;border:none;border-radius:4px;cursor:pointer;background:#1565c0;color:white" onclick="reanalyzeStock('${r.code}','${r.name}','${r.grade}','${r.signal_type}')">重分析</button></td>
+    </tr>`;
+  }).join('');
+
+  // 如果有综合报告，存储起来
+  if (hasCompReport) {
+    window._compReportText = data.comprehensive_report || data.report;
+  }
+}
+
+function closeModal() { document.getElementById('historyModal').classList.remove('show'); }
+
+function viewCompReport() {
+  const report = window._compReportText || '暂无综合分析报告';
+  const area = document.getElementById('compReportArea');
+  if (area.innerHTML.trim()) {
+    area.innerHTML = '';
+  } else {
+    area.innerHTML = `<div class="comp-report" style="margin-bottom:16px"><h3 style="margin-bottom:12px;color:#1a237e">综合分析报告</h3>${report}</div>`;
+  }
+}
+
+async function historyCompAnalysis() {
+  if (historyDetailResults.length === 0) { alert('无数据'); return; }
+  const content = document.getElementById('modalContent');
+  const btn = content.querySelector('button[onclick="historyCompAnalysis()"]');
+  if (btn) { btn.disabled = true; btn.textContent = '生成中...'; }
+  try {
+    const res = await fetch(API + '/api/comprehensive', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ results: historyDetailResults })
+    });
+    const data = await res.json();
+    // 把综合评分写回结果
+    if (data.ranking && data.ranking.length > 0) {
+      data.ranking.forEach(r => {
+        const match = historyDetailResults.find(h => h.code === r.code);
+        if (match) match.comprehensive_score = r.score;
+      });
+    }
+    // 保存到数据库
+    if (historyRunId) {
+      await fetch(API + '/api/save_comprehensive', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          run_id: historyRunId,
+          comprehensive_report: data.comprehensive || data.report || '',
+          comprehensive_summary: data.market_summary || '',
+          ranking: data.ranking || []
+        })
+      });
+    }
+    // 重新渲染
+    const newData = { results: historyDetailResults, comprehensive_report: data.comprehensive || data.report || '' };
+    renderHistoryDetail(content, historyDetailResults, newData);
+  } catch(e) { alert('综合分析失败: ' + e.message); }
+  if (btn) { btn.disabled = false; btn.textContent = '综合分析'; }
+}
+
+async function batchReanalyze() {
+  if (historyDetailResults.length === 0) { alert('无数据'); return; }
+  if (!confirm(`确认批量重分析 ${historyDetailResults.length} 只股票？这将调用AI逐只分析。`)) return;
+  const content = document.getElementById('modalContent');
+  content.innerHTML = '<div style="padding:20px"><div class="loading"></div> 批量重分析中... <span id="batchProgress">0/' + historyDetailResults.length + '</span><div class="progress-bar" style="margin-top:12px"><div class="fill" id="batchFill" style="width:0"></div></div></div>';
+  const stocks = historyDetailResults.map(r => ({ code: r.code, name: r.name, grade: r.grade, signal_type: r.signal_type }));
+  let done = 0;
+  try {
+    const res = await fetch(API + '/api/full_analyze', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stocks })
+    });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { value, done: streamDone } = await reader.read();
+      if (streamDone) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const msg = JSON.parse(line.slice(6));
+          if (msg.type === 'result') {
+            done++;
+            const prog = document.getElementById('batchProgress');
+            const fill = document.getElementById('batchFill');
+            if (prog) prog.textContent = done + '/' + stocks.length;
+            if (fill) fill.style.width = (done / stocks.length * 100) + '%';
+            // 更新对应结果
+            const idx = historyDetailResults.findIndex(r => r.code === msg.data.code);
+            if (idx >= 0) historyDetailResults[idx] = { ...historyDetailResults[idx], ...msg.data };
+          }
+        } catch(e) {}
+      }
+    }
+  } catch(e) { alert('批量重分析失败: ' + e.message); }
+  // 重新渲染
+  loadHistoryDetail(historyRunId, '');
+}
+
+async function reanalyzeStock(code, name, grade, signal_type) {
+  if (!confirm(`确认重新分析 ${code} ${name}？`)) return;
+  try {
+    const res = await fetch(API + '/api/analyze', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, name, grade, signal_type })
+    });
+    const data = await res.json();
+    alert(`${code} ${name} 重新分析完成！评分: ${data.score}`);
+  } catch(e) { alert('分析失败: ' + e.message); }
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
