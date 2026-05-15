@@ -766,12 +766,12 @@ async function loadHistory() {
       container.innerHTML = '<div class="empty-state"><div class="icon">📚</div><div class="text">暂无历史分析记录</div></div>';
       return;
     }
-    container.innerHTML = runs.map(run => {
+    container.innerHTML = runs.map((run, i) => {
       const hasComp = (run.comprehensive_summary || '').length > 0;
       const compBadge = hasComp ? '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:#e8f5e9;color:#2e7d32;margin-left:8px">已生成综合分析</span>' : '';
       const compSummary = run.comprehensive_summary ? `<div style="color:#555;font-size:13px;margin-top:6px;line-height:1.5;max-height:40px;overflow:hidden">${run.comprehensive_summary}</div>` : '';
       return `<div class="history-item" onclick="loadHistoryDetail(${run.id}, '${run.signal_date}')">
-        <div class="h-date">${run.signal_date} - 分析了 ${run.stock_count} 只股票 ${compBadge}</div>
+        <div class="h-date">[${run.run_code}] ${run.signal_date} - 分析了 ${run.stock_count} 只股票 ${compBadge}</div>
         <div style="color:#666;font-size:13px">${new Date(run.created_at).toLocaleString()}</div>
         ${compSummary}
       </div>`;
@@ -807,6 +807,8 @@ function renderHistoryDetail(content, results, data) {
 
   // 按钮栏
   let headerBtns = `<div style="display:flex;gap:12px;margin-bottom:16px;align-items:center">
+    <input type="checkbox" id="selectAllChk" onchange="toggleSelectAll(this.checked)" style="width:16px;height:16px;cursor:pointer">
+    <label for="selectAllChk" style="cursor:pointer;font-size:13px">全选</label>
     <h2 style="flex:1;margin:0;color:#1a237e;font-size:18px">分析详情（${results.length}只）</h2>
     ${hasCompReport ? '<button style="padding:6px 16px;font-size:13px;border:none;border-radius:6px;cursor:pointer;background:#2e7d32;color:white" onclick="viewCompReport()">查看综合分析</button>' : ''}
     <button style="padding:6px 16px;font-size:13px;border:none;border-radius:6px;cursor:pointer;background:#6a1b9a;color:white" onclick="historyCompAnalysis()">综合分析</button>
@@ -817,7 +819,7 @@ function renderHistoryDetail(content, results, data) {
   const compTh = hasCompScore ? '<th>综合评分</th>' : '';
   content.innerHTML = headerBtns + `<div id="compReportArea"></div><div class="table-wrap"><table>
     <thead><tr>
-      <th>排名</th><th>代码</th><th>名称</th><th>信号</th><th>评级</th><th>评分</th>${compTh}<th>新闻</th><th>分析摘要</th><th>操作</th>
+      <th>选择</th><th>排名</th><th>代码</th><th>名称</th><th>信号</th><th>评级</th><th>评分</th>${compTh}<th>新闻</th><th>分析摘要</th><th>操作</th>
     </tr></thead>
     <tbody></tbody></table></div>`;
   const tbody = content.querySelector('tbody');
@@ -833,7 +835,8 @@ function renderHistoryDetail(content, results, data) {
     }
     const compTd = hasCompScore ? `<td class="score-cell">${r.comprehensive_score || '-'}</td>` : '';
     return `<tr>
-      <td>#${i+1}</td><td>${r.code}</td><td>${r.name}</td>
+      <td><input type="checkbox" class="row-chk" value="${r.code}" ${i === 0 ? 'checked' : ''}></td>
+      <td>#${r.seq || i+1}</td><td>${r.code}</td><td>${r.name}</td>
       <td>${r.signal_type || '-'}</td>
       <td><span class="grade ${gradeClass}">${r.grade || ''}级</span></td>
       <td><b>${r.score}</b></td>
@@ -899,12 +902,18 @@ async function historyCompAnalysis() {
   if (btn) { btn.disabled = false; btn.textContent = '综合分析'; }
 }
 
+function toggleSelectAll(checked) {
+  document.querySelectorAll('.row-chk').forEach(cb => { cb.checked = checked; });
+}
+
 async function batchReanalyze() {
   if (historyDetailResults.length === 0) { alert('无数据'); return; }
-  if (!confirm(`确认批量重分析 ${historyDetailResults.length} 只股票？这将调用AI逐只分析。`)) return;
+  const selectedCodes = Array.from(document.querySelectorAll('.row-chk:checked')).map(cb => cb.value);
+  if (selectedCodes.length === 0) { alert('请先勾选要重分析的股票'); return; }
+  if (!confirm(`确认批量重分析 ${selectedCodes.length} 只股票？这将调用AI逐只分析。`)) return;
   const content = document.getElementById('modalContent');
-  content.innerHTML = '<div style="padding:20px"><div class="loading"></div> 批量重分析中... <span id="batchProgress">0/' + historyDetailResults.length + '</span><div class="progress-bar" style="margin-top:12px"><div class="fill" id="batchFill" style="width:0"></div></div></div>';
-  const stocks = historyDetailResults.map(r => ({ code: r.code, name: r.name, grade: r.grade, signal_type: r.signal_type }));
+  content.innerHTML = '<div style="padding:20px"><div class="loading"></div> 批量重分析中... <span id="batchProgress">0/' + selectedCodes.length + '</span><div class="progress-bar" style="margin-top:12px"><div class="fill" id="batchFill" style="width:0"></div></div></div>';
+  const stocks = historyDetailResults.filter(r => selectedCodes.includes(r.code)).map(r => ({ code: r.code, name: r.name, grade: r.grade, signal_type: r.signal_type, news_links: r.news_links || [] }));
   let done = 0;
   try {
     const res = await fetch(API + '/api/full_analyze', {
@@ -930,26 +939,64 @@ async function batchReanalyze() {
             const fill = document.getElementById('batchFill');
             if (prog) prog.textContent = done + '/' + stocks.length;
             if (fill) fill.style.width = (done / stocks.length * 100) + '%';
-            // 更新对应结果
+            // 更新对应结果并标记为已更新
             const idx = historyDetailResults.findIndex(r => r.code === msg.data.code);
-            if (idx >= 0) historyDetailResults[idx] = { ...historyDetailResults[idx], ...msg.data };
+            if (idx >= 0) {
+              historyDetailResults[idx] = { ...historyDetailResults[idx], ...msg.data, _updated: true };
+            }
           }
         } catch(e) {}
       }
     }
   } catch(e) { alert('批量重分析失败: ' + e.message); }
-  // 重新渲染
-  loadHistoryDetail(historyRunId, '');
+  // 重新渲染（传入更新后的数据，不走API）
+  const newData = { results: historyDetailResults, comprehensive_report: data.comprehensive_report || '' };
+  renderHistoryDetail(content, historyDetailResults, newData);
+  // 保存到数据库（后台静默）
+  if (historyRunId) {
+    historyDetailResults.forEach(r => {
+      if (r._updated) {
+        fetch(API + '/api/update_result', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ run_id: historyRunId, code: r.code, score: r.score, analysis: r.analysis, news_links: r.news_links || [], grade: r.grade || '' })
+        });
+        delete r._updated;
+      }
+    });
+  }
 }
 
 async function reanalyzeStock(code, name, grade, signal_type) {
   if (!confirm(`确认重新分析 ${code} ${name}？`)) return;
+  // 找到已有新闻
+  const existing = historyDetailResults.find(r => r.code === code);
+  const signal_date = existing ? (new URLSearchParams(window.location.search).get('date') || '') : '';
   try {
     const res = await fetch(API + '/api/analyze', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, name, grade, signal_type })
+      body: JSON.stringify({
+        code, name, grade, signal_type, signal_date,
+        news_links: existing ? (existing.news_links || []) : []
+      })
     });
     const data = await res.json();
+    // 更新内存中的数据并标记
+    const idx = historyDetailResults.findIndex(r => r.code === code);
+    if (idx >= 0) {
+      historyDetailResults[idx] = { ...historyDetailResults[idx], ...data, _updated: true };
+      // 重新渲染当前历史详情
+      const modal = document.getElementById('historyModal');
+      const content = document.getElementById('modalContent');
+      const newData = { results: historyDetailResults, comprehensive_report: window._compReportText || '' };
+      renderHistoryDetail(content, historyDetailResults, newData);
+    }
+    // 后台保存到数据库
+    if (historyRunId) {
+      fetch(API + '/api/update_result', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ run_id: historyRunId, code, score: data.score, analysis: data.analysis, news_links: data.news_links || [], grade: grade })
+      });
+    }
     alert(`${code} ${name} 重新分析完成！评分: ${data.score}`);
   } catch(e) { alert('分析失败: ' + e.message); }
 }

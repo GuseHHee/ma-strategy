@@ -12,6 +12,7 @@ import numpy as np
 import requests as http_requests
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_file, Response
+from _fetch_indicators import _fetch_indicators
 from flask_cors import CORS
 from dotenv import load_dotenv
 
@@ -56,6 +57,7 @@ def init_analysis_db():
     c.execute('''CREATE TABLE IF NOT EXISTS analysis_results (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         run_id INTEGER NOT NULL,
+        seq INTEGER DEFAULT 0,
         code TEXT NOT NULL,
         name TEXT,
         signal_type TEXT,
@@ -68,6 +70,17 @@ def init_analysis_db():
         FOREIGN KEY (run_id) REFERENCES analysis_runs(id)
     )''')
     conn.commit()
+    # Migration: add seq column if not exists (only runs if table already existed)
+    try:
+        c.execute("SELECT seq FROM analysis_results WHERE 1=0")
+    except:
+        pass  # column doesn't exist
+    else:
+        try:
+            c.execute("ALTER TABLE analysis_results ADD COLUMN seq INTEGER DEFAULT 0")
+            conn.commit()
+        except:
+            pass
     conn.close()
 
 init_analysis_db()
@@ -904,6 +917,41 @@ def _fallback_score(code, name, signal_info, news_data, fund, error=''):
     }
 
 
+def _fetch_indicators(code: str, signal_date: str) -> dict:
+    """从数据库计算技术指标（MA5/MA10/MA20/Vol_ratio/RSI）"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        SELECT date, open, high, low, close, volume
+        FROM stock_daily
+        WHERE code=? AND date<=? AND close IS NOT NULL
+        ORDER BY date DESC LIMIT 60
+    """, (code, signal_date))
+    rows = c.fetchall()
+    conn.close()
+    if len(rows) < 20:
+        return {}
+    prices = [float(r[4]) for r in rows]
+    volumes = [float(r[5]) for r in rows]
+    close = prices[0]
+    ma5 = np.mean(prices[:5])
+    ma10 = np.mean(prices[:10])
+    ma20 = np.mean(prices[:20])
+    vol5 = np.mean(volumes[:5])
+    vol_ratio = close / vol5 if vol5 > 0 else 0
+    rsi_val = _rsi(prices, 14) if len(prices) >= 15 else 50
+    dist_ma5 = (close - ma5) / ma5 * 100 if ma5 > 0 else 0
+    dist_ma20 = (close - ma20) / ma20 * 100 if ma20 > 0 else 0
+    return {
+        'ma5': round(ma5, 2),
+        'ma10': round(ma10, 2),
+        'ma20': round(ma20, 2),
+        'vol_ratio': round(vol_ratio, 2),
+        'rsi': round(rsi_val, 1),
+        'dist_ma5': round(dist_ma5, 2),
+        'dist_ma20': round(dist_ma20, 2),
+    }
+
 def _get_fundamentals(code, name, signal_date):
     """获取基本面数据：历史价量统计 + 搜索财务数据"""
     conn = sqlite3.connect(DB_PATH)
@@ -943,19 +991,24 @@ def _get_fundamentals(code, name, signal_date):
 def _create_analysis_run(signal_date, stock_count):
     conn = sqlite3.connect(ANALYSIS_DB)
     c = conn.cursor()
-    c.execute("INSERT INTO analysis_runs (run_date,signal_date,created_at,stock_count) VALUES(?,?,?,?)",
-              (datetime.now().strftime('%Y-%m-%d'), signal_date, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), stock_count))
+    # Generate run_code: yyyymmdd-NNN
+    ymd = signal_date.replace('-', '')
+    c.execute("SELECT COUNT(*) FROM analysis_runs WHERE signal_date=?", (signal_date,))
+    seq = c.fetchone()[0] + 1
+    run_code = f"{ymd}-{seq:03d}"
+    c.execute("INSERT INTO analysis_runs (run_date,signal_date,created_at,stock_count,run_code) VALUES(?,?,?,?,?)",
+              (datetime.now().strftime('%Y-%m-%d'), signal_date, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), stock_count, run_code))
     run_id = c.lastrowid
     conn.commit()
     conn.close()
     return run_id
 
 
-def _save_result(run_id, code, name, signal_type, grade, score, analysis, news_links, fund):
+def _save_result(run_id, seq, code, name, signal_type, grade, score, analysis, news_links, fund):
     conn = sqlite3.connect(ANALYSIS_DB)
     c = conn.cursor()
-    c.execute("INSERT INTO analysis_results (run_id,code,name,signal_type,grade,score,analysis,news_links,fundamentals,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-              (run_id, code, name, signal_type, grade, score, analysis,
+    c.execute("INSERT INTO analysis_results (run_id,seq,code,name,signal_type,grade,score,analysis,news_links,fundamentals,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+              (run_id, seq, code, name, signal_type, grade, score, analysis,
                json.dumps(news_links, ensure_ascii=False),
                json.dumps(fund, ensure_ascii=False),
                datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
@@ -1047,8 +1100,14 @@ def api_full_analyze():
                 yield f"data: {json.dumps({'type': 'progress', 'stage': 'analyze', 'code': code, 'name': name, 'current': batch_start + i + 1, 'total': total}, ensure_ascii=False)}\n\n"
 
                 fund = _get_fundamentals(code, name, signal_date)
-                # 取本只股票专属的新闻（逐只搜的）
-                stock_news = shared_news.get('_per_stock', {}).get(f'{code}_{name}', shared_news)
+                indicators = _fetch_indicators(code, signal_date)
+                stock = {**stock, **indicators}
+                # 有已有新闻则复用，不重新搜索
+                existing_news = stock.get('news_links', [])
+                if existing_news and len(existing_news) > 0:
+                    stock_news = {'news': existing_news[:5], 'raw_news': '复用历史新闻'}
+                else:
+                    stock_news = shared_news.get('_per_stock', {}).get(f'{code}_{name}', shared_news)
                 result = m27_analyze(code, name, stock, stock_news, fund)
                 result['code'] = code
                 result['name'] = name
@@ -1057,7 +1116,7 @@ def api_full_analyze():
                 result['fundamentals'] = fund
                 result['run_id'] = run_id
 
-                _save_result(run_id, code, name, stock.get('signal_type', ''), stock.get('grade', ''),
+                _save_result(run_id, analyzed + 1, code, name, stock.get('signal_type', ''), stock.get('grade', ''),
                             result['score'], result['analysis'], result.get('news_links', []), fund)
                 analyzed += 1
 
@@ -1107,10 +1166,12 @@ def api_reanalyze():
             news_data = {'news': [], 'raw_news': f'搜索失败: {e}'}
 
     fund = _get_fundamentals(code, name, signal_date)
+    indicators = _fetch_indicators(code, signal_date)
+    signal_info = {**signal, **indicators}
     try:
-        result = m27_analyze(code, name, signal, news_data, fund)
+        result = m27_analyze(code, name, signal_info, news_data, fund)
     except Exception as e:
-        result = _fallback_score(code, name, signal, news_data, fund, str(e))
+        result = _fallback_score(code, name, signal_info, news_data, fund, str(e))
     result['code'] = code
     result['name'] = name
     result['signal_type'] = signal.get('signal_type', '')
@@ -1139,10 +1200,23 @@ def api_analyze():
 
     signal_info = {'code': code, 'name': name, 'grade': grade, 'signal_type': signal_type}
 
-    try:
-        news_data = search_single_stock_news(code, name)
-    except Exception as e:
-        news_data = {'news': [], 'raw_news': f'搜索失败: {e}'}
+    # 获取技术指标（量比/RSI/MA距离等）
+    if signal_date:
+        indicators = _fetch_indicators(code, signal_date)
+        signal_info = {**signal_info, **indicators}
+
+    # 检查是否有已有新闻要复用
+    existing_news = data.get('news_links', [])
+    if existing_news and isinstance(existing_news, list):
+        # 复用已有新闻，不重新搜索
+        news_data = {'news': [], 'raw_news': '复用历史新闻'}
+        if len(existing_news) > 0:
+            news_data['news'] = [{'title': n.get('title', '') or n.get('title', '新闻'), 'url': n.get('url', '')} for n in existing_news[:5]]
+    else:
+        try:
+            news_data = search_single_stock_news(code, name)
+        except Exception as e:
+            news_data = {'news': [], 'raw_news': f'搜索失败: {e}'}
 
     fund = _get_fundamentals(code, name, signal_date)
     try:
@@ -1164,7 +1238,7 @@ def api_comprehensive():
     """综合分析：基于已有的逐只分析结果（含新闻链接），重新综合评估，生成详细报告+排名"""
     data = request.json
     results = data.get('results', [])
-    signal_date = data.get('signal_date', '')
+    signal_date = data.get('signal_date', '') or '当日'
 
     if not results:
         return jsonify({'error': '没有分析结果'}), 400
@@ -1361,6 +1435,33 @@ def api_save_comprehensive():
     return jsonify({'saved': True, 'run_id': run_id})
 
 
+@app.route('/api/update_result', methods=['POST'])
+def api_update_result():
+    """更新单条分析结果（score/analysis/news_links）"""
+    data = request.json
+    run_id = data.get('run_id')
+    code = data.get('code', '')
+    score = data.get('score')
+    analysis = data.get('analysis', '')
+    news_links = data.get('news_links', [])
+    grade = data.get('grade', '')
+
+    if not run_id or not code:
+        return jsonify({'error': '需要run_id和code'}), 400
+
+    conn = sqlite3.connect(ANALYSIS_DB)
+    c = conn.cursor()
+    c.execute("""
+        UPDATE analysis_results
+        SET score=?, analysis=?, news_links=?, grade=?
+        WHERE run_id=? AND code=?
+    """, (score, analysis, json.dumps(news_links, ensure_ascii=False), grade, run_id, code))
+    conn.commit()
+    affected = c.rowcount
+    conn.close()
+    return jsonify({'updated': affected > 0})
+
+
 @app.route('/api/comprehensive/<int:run_id>', methods=['GET'])
 def api_get_comprehensive(run_id):
     """获取某次历史记录的综合分析报告"""
@@ -1384,8 +1485,8 @@ def api_history():
     limit = request.args.get('limit', 20, type=int)
     conn = sqlite3.connect(ANALYSIS_DB)
     c = conn.cursor()
-    c.execute("SELECT id,run_date,signal_date,created_at,stock_count,summary,comprehensive_summary FROM analysis_runs ORDER BY created_at DESC LIMIT ?", (limit,))
-    runs = [{'id': r[0], 'run_date': r[1], 'signal_date': r[2], 'created_at': r[3], 'stock_count': r[4], 'summary': r[5], 'comprehensive_summary': r[6] or ''} for r in c.fetchall()]
+    c.execute("SELECT id,run_date,signal_date,created_at,stock_count,summary,comprehensive_summary,run_code FROM analysis_runs ORDER BY created_at DESC LIMIT ?", (limit,))
+    runs = [{'id': r[0], 'run_date': r[1], 'signal_date': r[2], 'created_at': r[3], 'stock_count': r[4], 'summary': r[5], 'comprehensive_summary': r[6] or '', 'run_code': r[7] or ''} for r in c.fetchall()]
     conn.close()
     return jsonify({'history': runs})
 
@@ -1396,8 +1497,8 @@ def api_history_detail(run_id):
     c = conn.cursor()
     c.execute("SELECT * FROM analysis_runs WHERE id=?", (run_id,))
     run = c.fetchone()
-    c.execute("SELECT code,name,signal_type,grade,score,analysis,news_links,fundamentals,created_at,comprehensive_grade,comprehensive_score,comprehensive_reason FROM analysis_results WHERE run_id=? ORDER BY score DESC", (run_id,))
-    results = [{'code': r[0], 'name': r[1], 'signal_type': r[2], 'grade': r[3], 'score': r[4], 'analysis': r[5], 'news_links': json.loads(r[6]) if r[6] else [], 'fundamentals': json.loads(r[7]) if r[7] else {}, 'created_at': r[8], 'comprehensive_grade': r[9] or '', 'comprehensive_score': r[10] if r[10] is not None else None, 'comprehensive_reason': r[11] or ''} for r in c.fetchall()]
+    c.execute("SELECT seq,code,name,signal_type,grade,score,analysis,news_links,fundamentals,created_at,comprehensive_grade,comprehensive_score,comprehensive_reason FROM analysis_results WHERE run_id=? ORDER BY seq ASC", (run_id,))
+    results = [{'seq': r[0], 'code': r[1], 'name': r[2], 'signal_type': r[3], 'grade': r[4], 'score': r[5], 'analysis': r[6], 'news_links': json.loads(r[7]) if r[7] else [], 'fundamentals': json.loads(r[8]) if r[8] else {}, 'created_at': r[9], 'comprehensive_grade': r[10] or '', 'comprehensive_score': r[11] if r[11] is not None else None, 'comprehensive_reason': r[12] or ''} for r in c.fetchall()]
     conn.close()
     if not run:
         return jsonify({'error': '未找到'}), 404

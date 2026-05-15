@@ -1,26 +1,34 @@
-# API Keys - NEVER commit
-.env
-.env.*
+# Exclude debug/backup/temp files
+signal_dashboard/*.bak*
+signal_dashboard/_apply_patch*.py
+signal_dashboard/_inspect*.py
+signal_dashboard/patch_indicators.py
+signal_dashboard/*.py.bak*
+signal_dashboard/*.html.bak*
+signal_dashboard/*.bak
+signal_dashboard/*.txt
+signal_dashboard/check_*.js
+signal_dashboard/lkline.txt
+signal_dashboard/init_*.txt
+signal_dashboard/load*_check.txt
+signal_dashboard/loadHistoryDetail.txt
+signal_dashboard/lhd_*.txt
+signal_dashboard/analyze_func.txt
+signal_dashboard/export_func.txt
+signal_dashboard/reanalyze*.txt
+signal_dashboard/fn_*.txt
+signal_dashboard/segment.txt
+signal_dashboard/served_snippet.txt
+signal_dashboard/batch_context.txt
+signal_dashboard/tr_id.txt
+signal_dashboard/start_dashboard.ps1
+signals - \345\211\257\346\234\254.py
 
-# Python
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
 
-# Database (large files)
-*.db
-*.db-journal
-
-# CSV trade data (large)
-bt_new_ma_best_trades.csv
-
-# Backup files
-*.backup
-
-# IDE
-.vscode/
-.idea/
-
 # OS
+.DS_Store
 Thumbs.db
-Desktop.ini
