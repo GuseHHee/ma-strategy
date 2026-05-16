@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -789,6 +789,7 @@ async function loadHistoryDetail(runId, signalDate) {
   modal.classList.add('show');
   content.innerHTML = '<div class="loading"></div>加载详情...';
   historyRunId = runId;
+  historyDetailSignalDate = signalDate;
   try {
     const res = await fetch(API + `/api/history/${runId}`);
     const data = await res.json();
@@ -843,7 +844,7 @@ function renderHistoryDetail(content, results, data) {
       ${compTd}
       <td class="news-cell">${newsHtml}</td>
       <td style="word-break:break-word;white-space:normal;max-width:500px;line-height:1.6">${summary}</td>
-      <td><button style="padding:4px 10px;font-size:12px;border:none;border-radius:4px;cursor:pointer;background:#1565c0;color:white" onclick="reanalyzeStock('${r.code}','${r.name}','${r.grade}','${r.signal_type}')">重分析</button></td>
+      <td><button style="padding:4px 10px;font-size:12px;border:none;border-radius:4px;cursor:pointer;background:#1565c0;color:white" onclick="reanalyzeStock('${r.code}','${r.name}','${r.grade}','${r.signal_type}','${data.signal_date || ''}')">重分析</button></td>
     </tr>`;
   }).join('');
 
@@ -897,7 +898,7 @@ async function historyCompAnalysis() {
     }
     // 重新渲染
     const newData = { results: historyDetailResults, comprehensive_report: data.comprehensive || data.report || '' };
-    renderHistoryDetail(content, historyDetailResults, newData);
+    renderHistoryDetail(content, historyDetailResults, {...newData, signal_date: historyDetailSignalDate});
   } catch(e) { alert('综合分析失败: ' + e.message); }
   if (btn) { btn.disabled = false; btn.textContent = '综合分析'; }
 }
@@ -913,12 +914,12 @@ async function batchReanalyze() {
   if (!confirm(`确认批量重分析 ${selectedCodes.length} 只股票？这将调用AI逐只分析。`)) return;
   const content = document.getElementById('modalContent');
   content.innerHTML = '<div style="padding:20px"><div class="loading"></div> 批量重分析中... <span id="batchProgress">0/' + selectedCodes.length + '</span><div class="progress-bar" style="margin-top:12px"><div class="fill" id="batchFill" style="width:0"></div></div></div>';
-  const stocks = historyDetailResults.filter(r => selectedCodes.includes(r.code)).map(r => ({ code: r.code, name: r.name, grade: r.grade, signal_type: r.signal_type, news_links: r.news_links || [] }));
+  const stocks = historyDetailResults.filter(r => selectedCodes.includes(r.code)).map(r => ({ code: r.code, name: r.name, grade: r.grade, signal_type: r.signal_type, news_links: r.news_links || [], reuse_news: true }));
   let done = 0;
   try {
     const res = await fetch(API + '/api/full_analyze', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stocks })
+      body: JSON.stringify({ stocks, signal_date: historyDetailResults.length > 0 ? (new URLSearchParams(window.location.search).get('date') || '') : '' })
     });
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -970,13 +971,14 @@ async function reanalyzeStock(code, name, grade, signal_type) {
   if (!confirm(`确认重新分析 ${code} ${name}？`)) return;
   // 找到已有新闻
   const existing = historyDetailResults.find(r => r.code === code);
-  const signal_date = existing ? (new URLSearchParams(window.location.search).get('date') || '') : '';
+  const signal_date = arguments[4] || new URLSearchParams(window.location.search).get('date') || '';
   try {
     const res = await fetch(API + '/api/analyze', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         code, name, grade, signal_type, signal_date,
-        news_links: existing ? (existing.news_links || []) : []
+        news_links: existing ? (existing.news_links || []) : [],
+        reuse_news: true
       })
     });
     const data = await res.json();

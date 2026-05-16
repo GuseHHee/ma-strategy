@@ -938,7 +938,7 @@ def _fetch_indicators(code: str, signal_date: str) -> dict:
     ma10 = np.mean(prices[:10])
     ma20 = np.mean(prices[:20])
     vol5 = np.mean(volumes[:5])
-    vol_ratio = close / vol5 if vol5 > 0 else 0
+    vol_ratio = volumes[0] / vol5 if vol5 > 0 else 0
     rsi_val = _rsi(prices, 14) if len(prices) >= 15 else 50
     dist_ma5 = (close - ma5) / ma5 * 100 if ma5 > 0 else 0
     dist_ma20 = (close - ma20) / ma20 * 100 if ma20 > 0 else 0
@@ -1103,8 +1103,11 @@ def api_full_analyze():
                 indicators = _fetch_indicators(code, signal_date)
                 stock = {**stock, **indicators}
                 # 有已有新闻则复用，不重新搜索
+                reuse_flag = stock.get('reuse_news')
                 existing_news = stock.get('news_links', [])
-                if existing_news and len(existing_news) > 0:
+                if reuse_flag and existing_news and len(existing_news) > 0:
+                    stock_news = {'news': existing_news[:5], 'raw_news': '复用历史新闻'}
+                elif existing_news and len(existing_news) > 0:
                     stock_news = {'news': existing_news[:5], 'raw_news': '复用历史新闻'}
                 else:
                     stock_news = shared_news.get('_per_stock', {}).get(f'{code}_{name}', shared_news)
@@ -1204,19 +1207,30 @@ def api_analyze():
     if signal_date:
         indicators = _fetch_indicators(code, signal_date)
         signal_info = {**signal_info, **indicators}
-
-    # 检查是否有已有新闻要复用
-    existing_news = data.get('news_links', [])
-    if existing_news and isinstance(existing_news, list):
-        # 复用已有新闻，不重新搜索
-        news_data = {'news': [], 'raw_news': '复用历史新闻'}
-        if len(existing_news) > 0:
-            news_data['news'] = [{'title': n.get('title', '') or n.get('title', '新闻'), 'url': n.get('url', '')} for n in existing_news[:5]]
     else:
+        indicators = {}
+
+    # 检查已有新闻是否为空
+    existing_news = data.get('news_links', [])
+    print(f'[DEBUG] existing_news count={len(existing_news) if existing_news else 0}, reuse_news={data.get("reuse_news")}')
+    if existing_news and isinstance(existing_news, list) and len(existing_news) > 0:
+        # 复用已有新闻，尝试抓取正文
+        news_list = []
+        for n in existing_news[:5]:
+            title = n.get('title', '') or '新闻'
+            url = n.get('url', '')
+            if url:
+                content = fetch_article_content(url)
+                news_list.append({'title': title, 'url': url, 'content': content, 'snippet': content[:300] if content else ''})
+        news_data = {'news': news_list, 'raw_news': '复用历史新闻（已抓正文）'}
+    elif data.get('reuse_news'):
+        # reuse_news=true 时，如果没已有链接则尝试搜索
         try:
             news_data = search_single_stock_news(code, name)
         except Exception as e:
             news_data = {'news': [], 'raw_news': f'搜索失败: {e}'}
+    else:
+        news_data = {'news': [], 'raw_news': '无历史新闻'}
 
     fund = _get_fundamentals(code, name, signal_date)
     try:
@@ -1230,6 +1244,10 @@ def api_analyze():
     result['grade'] = grade
     result['fundamentals'] = fund
     result['news_links'] = [{'title': n.get('title', ''), 'url': n.get('url', '')} for n in (news_data.get('news') or []) if n.get('title')]
+    # 返回技术指标
+    if indicators:
+        for k, v in indicators.items():
+            result[k] = v
     return jsonify(result)
 
 
