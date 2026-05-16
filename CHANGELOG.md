@@ -1,5 +1,23 @@
 # MA策略信号分析平台 - 版本历史
 
+## [v1.1.1] - 2026-05-16
+
+### 修复
+- **重分析新闻正文抓取** — 之前只传标题/链接，现改用 `fetch_article_content` 抓取页面正文传入AI分析
+- **vol_ratio 计算错误** — `app.py` 内的 `_fetch_indicators` 函数用 `close/vol5` 算成0，改用 `volumes[0]/vol5`（`app.py` 第941行）
+- **重分析 reuse_news 丢失** — `reanalyzeStock()` 和 `batchReanalyze()` 前端未传 `reuse_news` 参数，后端无法判断是否复用已有新闻
+- **重分析 signal_date 缺失** — `reanalyzeStock()` 未从URL读取signal_date，导致技术指标无法从数据库正确查询
+- **batchReanalyze 缺 signal_date** — 前端POST时未传signal_date，后端`/api/full_analyze`收不到
+- **historyCompAnalysis signalDate 未定义** — `loadHistoryDetail`的局部变量在`historyCompAnalysis`里引用报错，新增全局变量 `historyDetailSignalDate`
+- **综合分析接口 400 错误** — `historyCompAnalysis`前端只传`results`未传`signal_date`，后端要求必须`results`
+- **综合分析超时** — 24只股票的分析耗时较长（约2分钟），API超时60s已调整为180s
+
+### 新功能
+- **综合分析报告脚本** — `_get_comp_report.py` 从数据库读24只股票明细，调API生成报告，写入文件
+- **腾讯频道发帖脚本** — `_post_final.py` 格式化报告内容，调用 `publish_feed` 发帖到腾讯频道
+
+---
+
 ## [v1.1.0] - 2026-05-15
 
 ### 新功能
